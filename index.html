@@ -20,7 +20,6 @@
 <body class="bg-slate-50 text-slate-800">
 
 <div class="flex h-screen">
-  <!-- Sidebar -->
   <aside id="sidebar" class="w-96 p-4 border-r bg-white shadow-md z-20 overflow-auto">
     <h1 class="text-lg font-semibold mb-4">Trouver le point le plus haut</h1>
 
@@ -34,7 +33,7 @@
       <div id="searchResults" class="mt-2 text-xs text-slate-600"></div>
     </div>
 
-    <!-- Options et boutons -->
+    <!-- Options -->
     <div class="space-y-3">
       <div>
         <label class="block text-sm font-medium">Sélection (dessine un rectangle)</label>
@@ -63,13 +62,23 @@
         </label>
       </div>
 
-      <!-- Style -->
+      <!-- Styles -->
       <div class="pt-2 border-t">
         <label class="block text-sm font-medium">Style</label>
         <div class="mt-2 grid grid-cols-3 gap-2">
           <button class="styleBtn px-2 py-2 rounded border" data-style="Pro">Pro</button>
           <button class="styleBtn px-2 py-2 rounded border" data-style="Nature">Nature</button>
           <button class="styleBtn px-2 py-2 rounded border" data-style="Dark">Dark</button>
+        </div>
+      </div>
+
+      <!-- Fond de carte -->
+      <div class="pt-2 border-t">
+        <label class="block text-sm font-medium">Fond de carte</label>
+        <div class="mt-2 grid grid-cols-2 gap-2">
+          <button class="basemapBtn px-2 py-2 rounded border" data-layer="osm">OSM Standard</button>
+          <button class="basemapBtn px-2 py-2 rounded border" data-layer="ign">IGN Topographique</button>
+          <button class="basemapBtn px-2 py-2 rounded border" data-layer="oaci">OACI France</button>
         </div>
       </div>
 
@@ -92,14 +101,9 @@
           <button onclick="window.print()" class='w-full px-3 py-2 rounded bg-indigo-600 text-white'>Imprimer l'aide</button>
         </div>
       </div>
-
-      <div class='pt-2 border-t text-xs text-slate-500'>
-        <strong>Hébergement :</strong> tu peux héberger sur GitHub Pages (fichier unique index.html).
-      </div>
     </div>
   </aside>
 
-  <!-- Map -->
   <main class="flex-1 relative">
     <div id="map" style="width:100%; height:100%"></div>
   </main>
@@ -109,50 +113,33 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
 
-<!-- Main Script -->
 <script>
 const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 const OPENTOPODATA_URL = 'https://api.opentopodata.org/v1/srtm90m';
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search?format=json&limit=6&q=';
 
-// Carte Leaflet
-const map = L.map('map').setView([46.8, 2.4], 6);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors' }).addTo(map);
+// Fond de carte
+const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' });
+const ign = L.tileLayer('https://wxs.ign.fr/essentiels/geoportail/wmts?layer=GEOGRAPHICALGRIDSYSTEMS.MAPS.SCAN-EXPRESS.STANDARD&style=normal&tilematrixset=PM&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image/png&TileMatrix={z}&TileCol={x}&TileRow={y}', { attribution: '© IGN' });
+const oaci = L.tileLayer('https://tiles.openaip.net/{z}/{x}/{y}.png', { attribution: '© OACI France' });
+
+const map = L.map('map', { layers: [osm] }).setView([46.8,2.4],6);
+const baseMaps = { osm, ign, oaci };
 
 // Draw rectangle
 const drawnItems = new L.FeatureGroup();
 map.addLayer(drawnItems);
 const drawControl = new L.Control.Draw({ draw: { polygon:false, polyline:false, circle:false, marker:false, rectangle:{ shapeOptions:{ color:'#f06eaa' } } }, edit: { featureGroup: drawnItems } });
 map.addControl(drawControl);
-map.on(L.Draw.Event.CREATED, function(e){ drawnItems.clearLayers(); drawnItems.addLayer(e.layer); });
+map.on(L.Draw.Event.CREATED, e => { drawnItems.clearLayers(); drawnItems.addLayer(e.layer); });
 
-// UI helpers
-const logEl = document.getElementById('log');
-function log(msg){ const now=new Date().toLocaleTimeString(); logEl.innerHTML = '<div>['+now+'] '+msg+'</div>'+logEl.innerHTML; }
-function setStatus(s){ document.getElementById('status').innerText = s; }
+// Styles
+document.querySelectorAll('.styleBtn').forEach(b=>b.addEventListener('click', ()=>{
+  const s=b.dataset.style||'Pro';
+  document.body.className = s==='Pro'?'bg-slate-50 text-slate-800':s==='Nature'?'bg-emerald-50 text-emerald-900':'bg-slate-900 text-slate-200';
+}));
 
-// Style buttons
-const styleBtns = document.querySelectorAll('.styleBtn');
-styleBtns.forEach(b=>b.addEventListener('click', ()=>{ const s=b.dataset.style||'Pro'; applyStyle(s); }));
-function applyStyle(s){ if(s==='Pro'){ document.body.className='bg-slate-50 text-slate-800'; } else if(s==='Nature'){ document.body.className='bg-emerald-50 text-emerald-900'; } else{ document.body.className='bg-slate-900 text-slate-200'; } log('Style appliqué: '+s); }
-applyStyle('Pro');
-
-// Search
-const searchInput=document.getElementById('searchInput');
-const searchBtn=document.getElementById('searchBtn');
-const searchResultsEl=document.getElementById('searchResults');
-let lastSearchMarker=null;
-searchBtn.addEventListener('click', async ()=>{
-  const q=searchInput.value.trim(); if(!q) return; setStatus('Recherche Nominatim...');
-  try{
-    const r=await fetch(NOMINATIM_URL+encodeURIComponent(q),{headers:{'Accept':'application/json'}});
-    const j=await r.json(); searchResultsEl.innerHTML='';
-    if(j.length===0){ searchResultsEl.innerText='Aucun résultat.'; setStatus('Prêt.'); return; }
-    j.forEach(it=>{ const btn=document.createElement('button'); btn.className='w-full text-left px-2 py-1 hover:bg-slate-100 rounded text-sm'; btn.innerText=it.display_name+' ('+it.lat+','+it.lon+')'; btn.addEventListener('click',()=>{ if(lastSearchMarker) map.removeLayer(lastSearchMarker); lastSearchMarker=L.marker([it.lat,it.lon]).addTo(map).bindPopup(it.display_name).openPopup(); map.setView([it.lat,it.lon],13); searchResultsEl.innerHTML=''; setStatus('Prêt.'); }); searchResultsEl.appendChild(btn); });
-  }catch(e){ log('Erreur Nominatim: '+e.message); setStatus('Erreur Nominatim'); }
-});
-
-// Other buttons (locate, reset, find, export) - can be kept as in previous script
-</script>
-</body>
-</html>
+// Basemap switch
+document.querySelectorAll('.basemapBtn').forEach(b=>b.addEventListener('click',()=>{
+  const l=b.dataset.layer;
+  Object.values(baseMaps).forEach(l
